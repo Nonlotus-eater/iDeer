@@ -90,70 +90,90 @@ class HuggingFaceSource(BaseSource):
             return self._build_model_prompt(item)
 
     def _build_paper_prompt(self, item: dict) -> str:
-        prompt = """
-            你是一个有帮助的AI研究助手，可以帮助我构建每日HuggingFace论文推荐系统。
-            以下是我感兴趣的研究领域描述：
-            {}
-        """.format(self.description)
-        prompt += """
-            以下是今天HuggingFace Daily Papers中的一篇论文：
-            标题: {}
-            摘要: {}
-            社区点赞数: {}
-        """.format(item["title"], item["abstract"], item.get("upvotes", 0))
-        prompt += """
-            1. 用中文总结这篇论文的主要内容和创新点。
-            2. 请评估这篇论文与我研究领域的相关性，并给出 0-10 的评分。其中 0 表示完全不相关，10 表示高度相关。
+        return f"""
+You are screening one HuggingFace Daily Paper for a daily research digest. Be selective; community popularity is only a weak signal.
 
-            请按以下 JSON 格式给出你的回答：
-            {
-                "summary": "一段纯文本的中文总结（不要嵌套JSON/dict，直接写一段话）",
-                "relevance": <你的评分>
-            }
-            重要：summary 必须是一段纯文本字符串，不要返回嵌套的 JSON 对象或字典。
-            使用中文回答。
-            直接返回上述 JSON 格式，无需任何额外解释。
-        """
-        return prompt
+Reader profile:
+{self.description}
+
+Candidate paper:
+Title: {item["title"]}
+Abstract: {item["abstract"]}
+Community upvotes: {item.get("upvotes", 0)}
+
+Evaluate the paper against the reader profile. The reader mainly cares about:
+1. spatiotemporal data mining/modeling, forecasting, mobility analytics, traffic systems, urban computing, human dynamics, and spatiotemporal representation learning;
+2. data condensation, dataset distillation, synthetic data generation, gradient/distribution/trajectory matching, matching training trajectories, and diffusion-based data synthesis;
+3. efficient vector search, vector databases, approximate nearest neighbor search, indexing, retrieval optimization, and RAG retrieval systems;
+4. agent memory, long-term retrieval, personalized memory, knowledge organization, and memory-augmented LLM agents.
+
+Use a strict relevance rubric:
+- 9-10: Directly matches one core area, has a clear methodological contribution, and includes strong experiments, benchmarks, code, or practical system implications.
+- 7-8: Directly relevant to one core area, but the contribution or validation is less complete.
+- 5-6: Adjacent or potentially useful, but not central to the reader's work.
+- 0-4: Out of scope, weakly supported, purely application-driven, or only applies existing models without meaningful technical novelty.
+
+Apply these caps:
+- If it is popular but only broadly about LLMs, agents, multimodal models, or benchmarks without matching the reader profile, cap relevance at 5.
+- If it mainly applies an existing LLM/model/tool without technical innovation, cap relevance at 4.
+- If it is about agents but not memory, retrieval, personalization, or knowledge organization, cap relevance at 6.
+- If it is about RAG but not retrieval efficiency, indexing, vector search, memory, or data organization, cap relevance at 6.
+- If the abstract gives weak or unclear empirical evidence, cap relevance at 7.
+
+Write the summary in Simplified Chinese as one plain-text paragraph. Make it paper-centric and include:
+问题: what problem it studies; 方法: the technical idea/contribution; 实验/证据: the validation signal if available; 相关性: why it matters to the reader; 局限: any uncertainty or reason to be cautious.
+
+Return strict JSON only. No markdown fence. No extra text.
+{{
+  "summary": "问题：... 方法：... 实验/证据：... 相关性：... 局限：...",
+  "relevance": 0.0
+}}
+"""
 
     def _build_model_prompt(self, item: dict) -> str:
         tags = item.get("tags", [])
-        prompt = """
-            你是一个有帮助的AI研究助手，可以帮助我发现有用的AI模型。
-            以下是我感兴趣的研究领域描述：
-            {}
-        """.format(self.description)
-        prompt += """
-            以下是HuggingFace上的一个热门模型：
-            模型ID: {}
-            描述: {}
-            下载量: {}
-            点赞数: {}
-            标签: {}
-        """.format(
-            item["model_id"],
-            item.get("description", "") or "无描述",
-            item.get("downloads", 0),
-            item.get("likes", 0),
-            ", ".join(tags) if tags else "无标签",
-        )
-        prompt += """
-            1. 用中文总结这个模型的主要功能和适用场景。
-            2. 请评估这个模型对我研究/工作的有用程度，并给出 0-10 的评分。其中 0 表示完全没用，10 表示非常有用。
+        return f"""
+You are screening one HuggingFace model for a research-focused daily digest. Be selective; general popularity is not enough.
 
-            请按以下 JSON 格式给出你的回答：
-            {
-                "summary": "一段纯文本的中文总结（不要嵌套JSON/dict，直接写一段话）",
-                "usefulness": <你的评分>
-            }
-            重要：summary 必须是一段纯文本字符串，不要返回嵌套的 JSON 对象或字典。
-            使用中文回答。
-            直接返回上述 JSON 格式，无需任何额外解释。
-        """
-        return prompt
+Reader profile:
+{self.description}
+
+Candidate model:
+Model ID: {item["model_id"]}
+Description: {item.get("description", "") or "No description"}
+Downloads: {item.get("downloads", 0)}
+Likes: {item.get("likes", 0)}
+Tags: {", ".join(tags) if tags else "No tags"}
+
+Evaluate usefulness for the reader's research and system-building interests:
+- spatiotemporal modeling, forecasting, mobility/traffic/urban data, or spatiotemporal representation learning;
+- data condensation, dataset distillation, synthetic data generation, or diffusion-based data synthesis;
+- efficient vector search, indexing, retrieval optimization, vector databases, or RAG systems;
+- agent memory, long-term retrieval, personalized memory, knowledge organization, or memory-augmented agents.
+
+Use a strict usefulness rubric:
+- 9-10: Directly useful for one core area, with clear practical or methodological value.
+- 7-8: Relevant and likely worth checking, but the connection is narrower or less validated.
+- 5-6: Adjacent utility only.
+- 0-4: Generic model release, broad LLM/multimodal model, demo, or weakly related artifact.
+
+Apply caps:
+- If it is a generic LLM, vision-language model, chatbot, or benchmark model without direct relevance to the core areas, cap usefulness at 5.
+- If the description is sparse and no clear research/system value is visible, cap usefulness at 6.
+- If it is only an application demo, cap usefulness at 5.
+
+Write the summary in Simplified Chinese as one plain-text paragraph. Include:
+功能: what the model does; 适用场景: where it could be useful; 相关性: why it matters to the reader; 谨慎点: why it may be less important.
+
+Return strict JSON only. No markdown fence. No extra text.
+{{
+  "summary": "功能：... 适用场景：... 相关性：... 谨慎点：...",
+  "usefulness": 0.0
+}}
+"""
 
     def parse_eval_response(self, item: dict, response: str) -> dict:
-        response = response.strip("```").strip("json")
+        response = str(response or "").strip("```").strip("json")
         data = json.loads(response)
 
         if item.get("_hf_type") == "paper":

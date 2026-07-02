@@ -234,7 +234,7 @@ class ReportGenerator:
         )
         profile_excerpt = self._truncate(self.profile_text, 6000)
 
-        return f"""You are writing a personalized cross-platform daily briefing for a single reader.
+        return f"""You are writing a personalized daily research digest for a single reader.
 
 The output language must be Simplified Chinese, but keep the reasoning prompt in English and do not return any explanatory preamble.
 
@@ -244,68 +244,78 @@ Reader profile:
 Curated source material for today:
 {items_text}
 
-Your job:
-1. Infer the 3-{self.theme_count} most important storylines across the materials.
-2. Write the first half like a coherent human-readable report, not a feed dump, not account-by-account notes, and not a sequence of isolated bullets.
-3. Use the back half to provide your own interpretation, short-horizon predictions, and concrete ideas.
-4. Prefer cross-source synthesis when possible. Connect social signals, repos, papers, and models into a single narrative.
-5. Be explicit about uncertainty. Separate observed facts from inference.
-6. Do not invent evidence. Every concrete claim should be grounded in the provided material.
+Your job is to write a paper-centric digest, not a broad analyst essay.
+
+Reader's core interests:
+1. spatiotemporal data mining/modeling, forecasting, mobility analytics, traffic systems, urban computing, human dynamics, and spatiotemporal representation learning;
+2. data condensation, dataset distillation, synthetic data generation, gradient/distribution/trajectory matching, matching training trajectories, and diffusion-based data synthesis;
+3. efficient vector search, vector databases, approximate nearest neighbor search, indexing structures, retrieval optimization, and RAG retrieval systems;
+4. agent memory, long-term retrieval, personalized memory, knowledge organization, and memory-augmented LLM agents.
+
+Writing priorities:
+1. Put concrete papers/items first. For each important item, explain the problem, method/contribution, experiment or evidence, why it is relevant to the reader, and whether it is worth reading carefully.
+2. Treat "themes" as research-area sections or paper clusters, not market storylines. Good theme titles look like "Agent Memory", "Vector Search / RAG Retrieval", "Spatiotemporal Modeling", or "Data Condensation".
+3. Prefer direct relevance over popularity. Do not over-highlight generic LLM, multimodal, agent, or benchmark papers unless they clearly connect to the reader's profile.
+4. Keep your own high-level interpretation short and grounded. Do not invent connections, predictions, or research ideas that are not supported by the provided items.
+5. Be explicit about uncertainty. If an abstract lacks experiments, code, or benchmarks, say so briefly.
+6. Every concrete claim must be grounded in the provided material. Do not add facts from outside the input.
 
 Output strict JSON only. No markdown fence. No extra text.
 
 Schema:
 {{
-  "report_title": "A sharp Chinese report title",
-  "subtitle": "One-sentence Chinese subtitle tailored to the reader",
-  "opening": "2-3 connected Chinese paragraphs that read like an analyst briefing",
+  "report_title": "A concise Chinese title for today's research digest",
+  "subtitle": "One-sentence Chinese subtitle focused on the most relevant papers",
+  "opening": "One short Chinese paragraph that says what is most worth reading today and why",
   "themes": [
     {{
-      "title": "Short Chinese theme title",
-      "narrative": "One substantial Chinese paragraph",
+      "title": "Chinese research-area section title",
+      "narrative": "A concise Chinese paragraph introducing the papers/items in this section. Prioritize paper content: problem, method, evidence, relevance, and caveat. Avoid generic trend commentary.",
       "signals": [
         {{
-          "source": "github/twitter/huggingface",
-          "title": "signal title",
-          "why_it_matters": "one-sentence Chinese significance",
+          "source": "arxiv/huggingface/rss/github/twitter/semanticscholar",
+          "title": "paper or item title",
+          "why_it_matters": "Chinese paper-card note: 问题 + 方法 + 实验/证据 + 与读者相关性 + 阅读优先级",
           "url": "https://..."
         }}
       ]
     }}
   ],
   "interpretation": {{
-    "thesis": "1-2 Chinese paragraphs of interpretation",
-    "implications": "1 Chinese paragraph on what this may imply next"
+    "thesis": "One short Chinese paragraph on the reading priority and cross-paper takeaway, grounded only in today's items",
+    "implications": "One short Chinese paragraph on what the reader may do next, such as read, save, compare, or skip"
   }},
   "predictions": [
     {{
-      "prediction": "Chinese prediction",
+      "prediction": "Chinese prediction only if strongly supported; otherwise return an empty array",
       "time_horizon": "e.g. 1-2周 / 1-3个月",
       "confidence": "高/中/低",
-      "rationale": "Chinese rationale grounded in today's signals"
+      "rationale": "Chinese rationale grounded in today's items"
     }}
   ],
   "ideas": [
     {{
-      "title": "Chinese idea title",
+      "title": "Chinese idea title only if directly inspired by a high-relevance item; otherwise return an empty array",
       "detail": "Chinese idea description",
-      "why_now": "Why this is timely now"
+      "why_now": "Why this is timely now, grounded in today's items"
     }}
   ],
   "watchlist": [
     {{
       "item": "Chinese watch item",
-      "reason": "Chinese reason"
+      "reason": "Why to monitor it or why it is lower priority"
     }}
   ]
 }}
 
 Requirements:
 - Keep "themes" to at most {self.theme_count}.
-- Keep "predictions" to exactly {self.prediction_count} if enough evidence exists, otherwise fewer.
-- Keep "ideas" to exactly {self.idea_count} if enough evidence exists, otherwise fewer.
-- In the opening and interpretation, write fluent continuous prose, not bullet fragments.
-- In the signals list, prefer the strongest evidence rather than exhaustive coverage.
+- Each theme should contain 1-4 strongest signals. Prefer high-score, directly relevant papers.
+- "signals.why_it_matters" must introduce the item itself, not just say it is important.
+- Keep "opening", "narrative", and "interpretation" concise. The digest should contain more paper explanation than model commentary.
+- Keep "predictions" to at most {self.prediction_count}; return [] if evidence is weak or the requested count is 0.
+- Keep "ideas" to at most {self.idea_count}; return [] if evidence is weak or the requested count is 0.
+- Use watchlist for borderline but potentially relevant items, not for broad speculation.
 """
 
     @staticmethod

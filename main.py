@@ -140,13 +140,13 @@ def main():
     parser.add_argument(
         "--report_min_score",
         type=float,
-        default=env_float("REPORT_MIN_SCORE", 4.0),
+        default=env_float("REPORT_MIN_SCORE", 7.0),
         help="Minimum item score to include in cross-source report curation",
     )
     parser.add_argument(
         "--report_max_items",
         type=int,
-        default=env_int("REPORT_MAX_ITEMS", 18),
+        default=env_int("REPORT_MAX_ITEMS", 12),
         help="Maximum number of curated items fed into the report generator",
     )
     parser.add_argument(
@@ -158,13 +158,13 @@ def main():
     parser.add_argument(
         "--report_prediction_count",
         type=int,
-        default=env_int("REPORT_PREDICTION_COUNT", 4),
+        default=env_int("REPORT_PREDICTION_COUNT", 0),
         help="Maximum number of predictions in the cross-source report",
     )
     parser.add_argument(
         "--report_idea_count",
         type=int,
-        default=env_int("REPORT_IDEA_COUNT", 4),
+        default=env_int("REPORT_IDEA_COUNT", 0),
         help="Maximum number of ideas in the cross-source report",
     )
     parser.add_argument(
