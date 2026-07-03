@@ -14,6 +14,7 @@ def _source_badge(source: str) -> tuple[str, str]:
         "twitter": ("X/Twitter", "#1d9bf0"),
         "rss": ("RSS", "#0e7490"),
         "arxiv": ("arXiv", "#b31b1b"),
+        "openreview": ("OpenReview", "#4051b5"),
         "semanticscholar": ("Semantic Scholar", "#1857b6"),
         "pubmed": ("PubMed", "#2e7d32"),
     }
@@ -38,6 +39,19 @@ def _field(label: str, value: str) -> str:
     <div style="margin-top:10px;">
       <span style="font-weight:800;color:#0f172a;">【{_escape(label)}】</span>
       <span style="color:#334155;">{_escape(value)}</span>
+    </div>
+    """
+
+
+def _link_field(label: str, url: str) -> str:
+    url = str(url or "").strip()
+    if not url:
+        return _field(label, "未说明")
+    escaped_url = _escape(url)
+    return f"""
+    <div style="margin-top:10px;">
+      <span style="font-weight:800;color:#0f172a;">【{_escape(label)}】</span>
+      <a href="{escaped_url}" style="color:#2563eb;text-decoration:none;">{escaped_url}</a>
     </div>
     """
 
@@ -131,6 +145,7 @@ def _render_paper_card(card: dict, index: int) -> str:
         {_escape(meta or "年份 / 会议或状态 / 领域未说明")}
       </div>
       <div style="font-size:14px;line-height:1.75;color:#334155;margin-top:14px;">
+        {_link_field("原文", card.get("url", ""))}
         {_field("一句话", card.get("one_sentence", ""))}
         {_field("问题", card.get("problem", ""))}
         {_method_block(card.get("method") or {})}

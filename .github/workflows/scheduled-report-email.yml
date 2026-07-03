@@ -66,6 +66,13 @@ jobs:
       IDEER_HF_MAX_MODELS: ${{ secrets.IDEER_HF_MAX_MODELS }}
       IDEER_RSS_URLS: ${{ secrets.IDEER_RSS_URLS }}
       IDEER_RSS_MAX_ITEMS: ${{ secrets.IDEER_RSS_MAX_ITEMS }}
+      IDEER_OPENREVIEW_VENUES: ${{ secrets.IDEER_OPENREVIEW_VENUES }}
+      IDEER_OPENREVIEW_INVITATIONS: ${{ secrets.IDEER_OPENREVIEW_INVITATIONS }}
+      IDEER_OPENREVIEW_QUERIES: ${{ secrets.IDEER_OPENREVIEW_QUERIES }}
+      IDEER_OPENREVIEW_MAX_RESULTS: ${{ secrets.IDEER_OPENREVIEW_MAX_RESULTS }}
+      IDEER_OPENREVIEW_MAX_PAPERS: ${{ secrets.IDEER_OPENREVIEW_MAX_PAPERS }}
+      IDEER_OPENREVIEW_DAYS: ${{ secrets.IDEER_OPENREVIEW_DAYS }}
+      IDEER_OPENREVIEW_API_VERSIONS: ${{ secrets.IDEER_OPENREVIEW_API_VERSIONS }}
       IDEER_SS_QUERIES: ${{ secrets.IDEER_SS_QUERIES }}
       IDEER_SS_MAX_RESULTS: ${{ secrets.IDEER_SS_MAX_RESULTS }}
       IDEER_SS_MAX_PAPERS: ${{ secrets.IDEER_SS_MAX_PAPERS }}
@@ -136,3 +143,4 @@ jobs:
             history/twitter/**
             history/pubmed/**
             history/rss/**
+            history/openreview/**

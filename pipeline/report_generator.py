@@ -146,6 +146,7 @@ class ReportGenerator:
             "github": "GitHub",
             "huggingface": "HuggingFace",
             "twitter": "X/Twitter",
+            "openreview": "OpenReview",
         }.get(source_name, source_name)
         score = self._safe_float(rec.get("score", 0))
         summary = str(rec.get("summary", "")).strip()
@@ -179,6 +180,23 @@ class ReportGenerator:
                 if part
             )
             normalized["venue_or_status"] = normalized["venue_or_status"] or "arXiv preprint"
+        elif source_name == "openreview":
+            normalized["entity"] = str(rec.get("forum", rec.get("id", rec.get("title", "")))).strip()
+            normalized["detail"] = self._truncate(rec.get("abstract", ""), 320)
+            authors = rec.get("authors") or []
+            if isinstance(authors, list):
+                authors_text = ", ".join(str(x).strip() for x in authors[:5] if str(x).strip())
+            else:
+                authors_text = str(authors or "").strip()
+            normalized["metrics"] = " / ".join(
+                part
+                for part in [
+                    rec.get("venue_or_status", ""),
+                    f"authors={authors_text}" if authors_text else "",
+                ]
+                if part
+            )
+            normalized["venue_or_status"] = normalized["venue_or_status"] or "OpenReview submission"
         elif source_name == "github":
             normalized["entity"] = str(rec.get("repo_name", rec.get("title", ""))).strip()
             normalized["detail"] = " / ".join(
@@ -232,7 +250,7 @@ class ReportGenerator:
 
         is_paper_item = (
             isinstance(rec.get("paper_card"), dict)
-            or source_name in ("arxiv", "semanticscholar", "pubmed")
+            or source_name in ("arxiv", "openreview", "semanticscholar", "pubmed")
             or (source_name == "huggingface" and normalized.get("category") == "paper")
         )
         if is_paper_item:
@@ -404,7 +422,7 @@ Schema:
 Requirements:
 - Return 5-10 top_papers if enough relevant papers exist; fewer is fine when evidence is weak.
 - Every top_papers entry must be one concrete paper/item from the provided source material.
-- Prefer top_papers from arxiv, huggingface papers, semanticscholar, pubmed, or RSS paper sources. Put models/repos/social items in watchlist unless they are essential.
+- Prefer top_papers from arxiv, openreview, huggingface papers, semanticscholar, pubmed, or RSS paper sources. Put models/repos/social items in watchlist unless they are essential.
 - Do not output predictions or research ideas.
 - Use concise Chinese. Each card field should be informative but not essay-length.
 """
@@ -497,7 +515,7 @@ Invalid JSON:
             top_papers = [
                 self._normalize_paper_card({}, item)
                 for item in top_items
-                if item.get("source") in ("arxiv", "huggingface", "semanticscholar", "pubmed", "rss")
+                if item.get("source") in ("arxiv", "openreview", "huggingface", "semanticscholar", "pubmed", "rss")
             ]
         top_titles = "、".join(self._safe_slug(item.get("title", "")) for item in top_papers[:3])
         opening = (
@@ -724,6 +742,7 @@ Invalid JSON:
                         f"{card.get('venue_or_status', '未说明')} / {card.get('area', '未说明')} / "
                         f"Score {card.get('score', '')}\n"
                     )
+                    f.write(f"- **原文**：{url or '未说明'}\n")
                     f.write(f"- **一句话**：{card.get('one_sentence', '未说明')}\n")
                     f.write(f"- **问题**：{card.get('problem', '未说明')}\n")
                     method = card.get("method") or {}

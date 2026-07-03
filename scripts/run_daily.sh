@@ -32,6 +32,10 @@ IDEA_ARGS=()
 REPORT_ARGS=()
 SS_QUERY_ARGS=()
 SS_FIELD_ARGS=()
+OPENREVIEW_VENUE_ARGS=()
+OPENREVIEW_INVITATION_ARGS=()
+OPENREVIEW_QUERY_ARGS=()
+OPENREVIEW_API_VERSION_ARGS=()
 SOURCE_EMAIL_ARGS=()
 
 if [ -n "${SS_QUERIES:-}" ]; then
@@ -42,6 +46,26 @@ fi
 if [ -n "${SS_FIELDS_OF_STUDY:-Computer Science}" ]; then
   IFS='|' read -r -a SS_FIELD_VALUES <<< "${SS_FIELDS_OF_STUDY:-Computer Science}"
   SS_FIELD_ARGS=(--ss_fields_of_study "${SS_FIELD_VALUES[@]}")
+fi
+
+if [ -n "${OPENREVIEW_VENUES:-}" ]; then
+  IFS='|' read -r -a OPENREVIEW_VENUE_VALUES <<< "${OPENREVIEW_VENUES}"
+  OPENREVIEW_VENUE_ARGS=(--openreview_venues "${OPENREVIEW_VENUE_VALUES[@]}")
+fi
+
+if [ -n "${OPENREVIEW_INVITATIONS:-}" ]; then
+  IFS='|' read -r -a OPENREVIEW_INVITATION_VALUES <<< "${OPENREVIEW_INVITATIONS}"
+  OPENREVIEW_INVITATION_ARGS=(--openreview_invitations "${OPENREVIEW_INVITATION_VALUES[@]}")
+fi
+
+if [ -n "${OPENREVIEW_QUERIES:-}" ]; then
+  IFS='|' read -r -a OPENREVIEW_QUERY_VALUES <<< "${OPENREVIEW_QUERIES}"
+  OPENREVIEW_QUERY_ARGS=(--openreview_queries "${OPENREVIEW_QUERY_VALUES[@]}")
+fi
+
+if [ -n "${OPENREVIEW_API_VERSIONS:-}" ]; then
+  IFS='|' read -r -a OPENREVIEW_API_VERSION_VALUES <<< "${OPENREVIEW_API_VERSIONS}"
+  OPENREVIEW_API_VERSION_ARGS=(--openreview_api_versions "${OPENREVIEW_API_VERSION_VALUES[@]}")
 fi
 
 if [ "${GENERATE_IDEAS:-0}" = "1" ]; then
@@ -101,6 +125,13 @@ fi
   --hf_max_models "${HF_MAX_MODELS:-15}" \
   --rss_urls "${RSS_URLS[@]}" \
   --rss_max_items "${RSS_MAX_ITEMS:-30}" \
+  "${OPENREVIEW_VENUE_ARGS[@]}" \
+  "${OPENREVIEW_INVITATION_ARGS[@]}" \
+  "${OPENREVIEW_QUERY_ARGS[@]}" \
+  --openreview_max_results "${OPENREVIEW_MAX_RESULTS:-50}" \
+  --openreview_max_papers "${OPENREVIEW_MAX_PAPERS:-20}" \
+  --openreview_days "${OPENREVIEW_DAYS:-0}" \
+  "${OPENREVIEW_API_VERSION_ARGS[@]}" \
   "${SOURCE_EMAIL_ARGS[@]}" \
   "${REPORT_ARGS[@]}" \
   "${IDEA_ARGS[@]}"
