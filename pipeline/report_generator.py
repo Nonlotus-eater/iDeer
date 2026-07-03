@@ -87,6 +87,60 @@ class ReportGenerator:
         except ValueError:
             return raw
 
+    @staticmethod
+    def _listify(value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(x).strip() for x in value if str(x).strip()]
+        text = str(value or "").strip()
+        return [text] if text else []
+
+    def _normalize_paper_card(self, raw: Any, item: dict | None = None) -> dict[str, Any]:
+        item = item or {}
+        card = raw if isinstance(raw, dict) else {}
+        method = card.get("method") if isinstance(card.get("method"), dict) else {}
+        experiments = card.get("experiments") if isinstance(card.get("experiments"), dict) else {}
+        value = card.get("value_to_me") if isinstance(card.get("value_to_me"), dict) else {}
+        score = self._safe_float(card.get("score", item.get("score", 0)))
+        source = str(card.get("source") or item.get("source", "")).strip()
+        url = str(card.get("url") or item.get("url", "")).strip()
+        summary = str(item.get("summary", "")).strip()
+
+        return {
+            "title": str(card.get("title") or item.get("title", "Untitled")).strip(),
+            "source": source,
+            "year": str(card.get("year") or item.get("year", "")).strip(),
+            "venue_or_status": str(
+                card.get("venue_or_status")
+                or item.get("venue_or_status", "")
+                or ("arXiv preprint" if source == "arxiv" else "")
+            ).strip(),
+            "area": str(card.get("area", "")).strip() or str(item.get("category", "")).strip() or "Adjacent",
+            "score": round(score, 2),
+            "one_sentence": str(card.get("one_sentence", "")).strip() or summary,
+            "problem": str(card.get("problem", "")).strip(),
+            "method": {
+                "input": str(method.get("input", "")).strip(),
+                "core_modules": str(method.get("core_modules", "")).strip(),
+                "training_objective": str(method.get("training_objective", "")).strip(),
+                "output": str(method.get("output", "")).strip(),
+            },
+            "innovations": self._listify(card.get("innovations"))[:4],
+            "experiments": {
+                "main_results": str(experiments.get("main_results", "")).strip(),
+                "ablations": str(experiments.get("ablations", "")).strip(),
+                "efficiency_or_cost": str(experiments.get("efficiency_or_cost", "")).strip(),
+            },
+            "limitations": str(card.get("limitations", "")).strip(),
+            "value_to_me": {
+                "uses": self._listify(value.get("uses"))[:5],
+                "reason": str(value.get("reason", "")).strip(),
+            },
+            "evidence_strength": str(card.get("evidence_strength", "")).strip(),
+            "reusable_assets": str(card.get("reusable_assets", "")).strip(),
+            "reading_priority": str(card.get("reading_priority", "")).strip(),
+            "url": url,
+        }
+
     def _normalize_item(self, source_name: str, rec: dict) -> dict:
         source_label = {
             "github": "GitHub",
@@ -105,13 +159,27 @@ class ReportGenerator:
             "summary": summary,
             "url": url,
             "category": str(rec.get("category", "")).strip(),
+            "year": str(rec.get("year", "")).strip(),
+            "venue_or_status": str(rec.get("venue_or_status", "")).strip(),
             "time": "",
             "metrics": "",
             "entity": "",
             "detail": "",
         }
 
-        if source_name == "github":
+        if source_name == "arxiv":
+            normalized["entity"] = str(rec.get("arxiv_id", rec.get("title", ""))).strip()
+            normalized["detail"] = self._truncate(rec.get("abstract", ""), 320)
+            normalized["metrics"] = " / ".join(
+                part
+                for part in [
+                    f"arxiv_id={rec.get('arxiv_id', '')}" if rec.get("arxiv_id") else "",
+                    f"category={rec.get('category', '')}" if rec.get("category") else "",
+                ]
+                if part
+            )
+            normalized["venue_or_status"] = normalized["venue_or_status"] or "arXiv preprint"
+        elif source_name == "github":
             normalized["entity"] = str(rec.get("repo_name", rec.get("title", ""))).strip()
             normalized["detail"] = " / ".join(
                 part
@@ -161,6 +229,14 @@ class ReportGenerator:
                 f"retweets={int(rec.get('retweets', 0) or 0)}, "
                 f"replies={int(rec.get('replies', 0) or 0)}"
             )
+
+        is_paper_item = (
+            isinstance(rec.get("paper_card"), dict)
+            or source_name in ("arxiv", "semanticscholar", "pubmed")
+            or (source_name == "huggingface" and normalized.get("category") == "paper")
+        )
+        if is_paper_item:
+            normalized["paper_card"] = self._normalize_paper_card(rec.get("paper_card"), normalized)
 
         return normalized
 
@@ -215,6 +291,10 @@ class ReportGenerator:
             lines.append(f"entity={item.get('entity')}")
         if item.get("category"):
             lines.append(f"category={item.get('category')}")
+        if item.get("year"):
+            lines.append(f"year={item.get('year')}")
+        if item.get("venue_or_status"):
+            lines.append(f"venue_or_status={item.get('venue_or_status')}")
         if item.get("time"):
             lines.append(f"time={item.get('time')}")
         if item.get("metrics"):
@@ -223,6 +303,11 @@ class ReportGenerator:
             lines.append(f"summary={item.get('summary')}")
         if item.get("detail"):
             lines.append(f"detail={item.get('detail')}")
+        if item.get("paper_card"):
+            lines.append(
+                "paper_card="
+                + json.dumps(item.get("paper_card"), ensure_ascii=False, separators=(",", ":"))
+            )
         if item.get("url"):
             lines.append(f"url={item.get('url')}")
         return "\n".join(lines)
@@ -234,7 +319,7 @@ class ReportGenerator:
         )
         profile_excerpt = self._truncate(self.profile_text, 6000)
 
-        return f"""You are writing a personalized daily research digest for a single reader.
+        return f"""You are writing a paper-card daily research digest for a single reader.
 
 The output language must be Simplified Chinese, but keep the reasoning prompt in English and do not return any explanatory preamble.
 
@@ -244,7 +329,7 @@ Reader profile:
 Curated source material for today:
 {items_text}
 
-Your job is to write a paper-centric digest, not a broad analyst essay.
+Your job is to select the most relevant papers/items and return structured paper cards. This is not a broad analyst essay.
 
 Reader's core interests:
 1. spatiotemporal data mining/modeling, forecasting, mobility analytics, traffic systems, urban computing, human dynamics, and spatiotemporal representation learning;
@@ -252,70 +337,76 @@ Reader's core interests:
 3. efficient vector search, vector databases, approximate nearest neighbor search, indexing structures, retrieval optimization, and RAG retrieval systems;
 4. agent memory, long-term retrieval, personalized memory, knowledge organization, and memory-augmented LLM agents.
 
-Writing priorities:
-1. Put concrete papers/items first. For each important item, explain the problem, method/contribution, experiment or evidence, why it is relevant to the reader, and whether it is worth reading carefully.
-2. Treat "themes" as research-area sections or paper clusters, not market storylines. Good theme titles look like "Agent Memory", "Vector Search / RAG Retrieval", "Spatiotemporal Modeling", or "Data Condensation".
-3. Prefer direct relevance over popularity. Do not over-highlight generic LLM, multimodal, agent, or benchmark papers unless they clearly connect to the reader's profile.
-4. Keep your own high-level interpretation short and grounded. Do not invent connections, predictions, or research ideas that are not supported by the provided items.
-5. Be explicit about uncertainty. If an abstract lacks experiments, code, or benchmarks, say so briefly.
-6. Every concrete claim must be grounded in the provided material. Do not add facts from outside the input.
+Card-writing priorities:
+1. Prefer papers with an existing paper_card in the input. Preserve their title, source, URL, score, and factual fields unless a field is empty.
+2. For each top paper, fill the card fields using only the provided material. If a field is not stated, write "未说明" or "不适用".
+3. Do not invent conference names, code availability, datasets, ablations, efficiency numbers, or benchmarks.
+4. Rank by direct relevance to the reader, methodological value, experimental support, reusable assets, and practical implications.
+5. Use watchlist for relevant but lower-priority items, including models or adjacent papers.
+6. Keep the opening and area_summary short. The email should mainly be a list of paper cards.
 
 Output strict JSON only. No markdown fence. No extra text.
 
 Schema:
 {{
-  "report_title": "A concise Chinese title for today's research digest",
-  "subtitle": "One-sentence Chinese subtitle focused on the most relevant papers",
-  "opening": "One short Chinese paragraph that says what is most worth reading today and why",
-  "themes": [
+  "report_title": "A concise Chinese title for today's paper digest",
+  "subtitle": "One-sentence Chinese subtitle focused on the top papers",
+  "opening": "One short Chinese paragraph naming the strongest 2-3 papers and why they matter",
+  "top_papers": [
     {{
-      "title": "Chinese research-area section title",
-      "narrative": "A concise Chinese paragraph introducing the papers/items in this section. Prioritize paper content: problem, method, evidence, relevance, and caveat. Avoid generic trend commentary.",
-      "signals": [
-        {{
-          "source": "arxiv/huggingface/rss/github/twitter/semanticscholar",
-          "title": "paper or item title",
-          "why_it_matters": "Chinese paper-card note: 问题 + 方法 + 实验/证据 + 与读者相关性 + 阅读优先级",
-          "url": "https://..."
-        }}
-      ]
+      "title": "Paper title",
+      "source": "arxiv/huggingface/semanticscholar/pubmed/rss",
+      "year": "2026 or 未说明",
+      "venue_or_status": "arXiv preprint / HuggingFace Daily / conference / 未说明",
+      "area": "Spatiotemporal / Data Condensation / Vector Search / Agent Memory / Adjacent",
+      "score": 0.0,
+      "one_sentence": "这篇论文解决……问题，提出……方法，在……上证明……",
+      "problem": "现有方法的主要不足是……",
+      "method": {{
+        "input": "...",
+        "core_modules": "...",
+        "training_objective": "训练目标/优化目标；若不适用或未说明则写不适用/未说明",
+        "output": "..."
+      }},
+      "innovations": ["...", "..."],
+      "experiments": {{
+        "main_results": "...",
+        "ablations": "摘要未说明",
+        "efficiency_or_cost": "摘要未说明"
+      }},
+      "limitations": "...",
+      "value_to_me": {{
+        "uses": ["相关工作", "baseline", "方法借鉴", "项目改进", "benchmark设计"],
+        "reason": "..."
+      }},
+      "evidence_strength": "强 / 中 / 弱 / 摘要未说明",
+      "reusable_assets": "代码 / 数据集 / benchmark / 未说明",
+      "reading_priority": "必读 / 可读 / 跟踪 / 跳过",
+      "url": "https://..."
     }}
   ],
-  "interpretation": {{
-    "thesis": "One short Chinese paragraph on the reading priority and cross-paper takeaway, grounded only in today's items",
-    "implications": "One short Chinese paragraph on what the reader may do next, such as read, save, compare, or skip"
-  }},
-  "predictions": [
+  "area_summary": [
     {{
-      "prediction": "Chinese prediction only if strongly supported; otherwise return an empty array",
-      "time_horizon": "e.g. 1-2周 / 1-3个月",
-      "confidence": "高/中/低",
-      "rationale": "Chinese rationale grounded in today's items"
-    }}
-  ],
-  "ideas": [
-    {{
-      "title": "Chinese idea title only if directly inspired by a high-relevance item; otherwise return an empty array",
-      "detail": "Chinese idea description",
-      "why_now": "Why this is timely now, grounded in today's items"
+      "area": "Vector Search / Agent Memory / Spatiotemporal / Data Condensation",
+      "summary": "One concise Chinese sentence about today's papers in this area"
     }}
   ],
   "watchlist": [
     {{
-      "item": "Chinese watch item",
-      "reason": "Why to monitor it or why it is lower priority"
+      "title": "Item title",
+      "source": "source",
+      "reason": "Why to monitor it or why it is lower priority",
+      "url": "https://..."
     }}
   ]
 }}
 
 Requirements:
-- Keep "themes" to at most {self.theme_count}.
-- Each theme should contain 1-4 strongest signals. Prefer high-score, directly relevant papers.
-- "signals.why_it_matters" must introduce the item itself, not just say it is important.
-- Keep "opening", "narrative", and "interpretation" concise. The digest should contain more paper explanation than model commentary.
-- Keep "predictions" to at most {self.prediction_count}; return [] if evidence is weak or the requested count is 0.
-- Keep "ideas" to at most {self.idea_count}; return [] if evidence is weak or the requested count is 0.
-- Use watchlist for borderline but potentially relevant items, not for broad speculation.
+- Return 5-10 top_papers if enough relevant papers exist; fewer is fine when evidence is weak.
+- Every top_papers entry must be one concrete paper/item from the provided source material.
+- Prefer top_papers from arxiv, huggingface papers, semanticscholar, pubmed, or RSS paper sources. Put models/repos/social items in watchlist unless they are essential.
+- Do not output predictions or research ideas.
+- Use concise Chinese. Each card field should be informative but not essay-length.
 """
 
     @staticmethod
@@ -397,95 +488,41 @@ Invalid JSON:
         for item in top_items:
             source_counts[item["source"]] = source_counts.get(item["source"], 0) + 1
 
-        source_line = " / ".join(
-            item["source_label"] for item in top_items[:3] if item.get("source_label")
-        )
-        top_titles = "、".join(self._safe_slug(item.get("title", "")) for item in top_items[:3])
+        top_papers = [
+            self._normalize_paper_card(item.get("paper_card"), item)
+            for item in top_items
+            if item.get("paper_card")
+        ]
+        if not top_papers:
+            top_papers = [
+                self._normalize_paper_card({}, item)
+                for item in top_items
+                if item.get("source") in ("arxiv", "huggingface", "semanticscholar", "pubmed", "rss")
+            ]
+        top_titles = "、".join(self._safe_slug(item.get("title", "")) for item in top_papers[:3])
         opening = (
-            f"今天的高分信号主要来自 {source_line or '多源'}。"
-            f"当前最值得优先关注的条目包括 {top_titles}。"
-            f"这份版本基于已完成的抓取与评分结果自动整理，重点保留了可直接阅读的主线、观察点和后续跟踪对象。"
+            f"今天最值得优先阅读的论文包括 {top_titles or '高分论文'}。"
+            "这份版本基于已完成的抓取与评分结果自动生成，优先保留单篇论文的问题、方法、实验和阅读价值。"
         )
-
-        themes = []
-        for item in top_items[: self.theme_count]:
-            detail = str(item.get("summary", "")).strip() or str(item.get("detail", "")).strip()
-            if not detail:
-                detail = "该条目在今天的筛选结果中得分较高，值得继续跟踪。"
-            narrative = (
-                f"{item.get('source_label', item.get('source', ''))} 信号里，"
-                f"《{item.get('title', 'Untitled')}》是今天的重点条目之一。"
-                f"{detail}"
-            )
-            themes.append(
-                {
-                    "title": self._safe_slug(item.get("title", "Untitled"), limit=48) or "今日重点信号",
-                    "narrative": narrative,
-                    "signals": [
-                        {
-                            "source": str(item.get("source", "")),
-                            "title": str(item.get("title", "")),
-                            "why_it_matters": detail,
-                            "url": str(item.get("url", "")),
-                        }
-                    ],
-                }
-            )
-
-        predictions = []
-        for item in top_items[: self.prediction_count]:
-            predictions.append(
-                {
-                    "prediction": f"{self._safe_slug(item.get('title', '该主题'), limit=40)} 相关讨论会继续升温",
-                    "time_horizon": "1-2周",
-                    "confidence": "中",
-                    "rationale": (
-                        f"该条目来自 {item.get('source_label', item.get('source', ''))}，"
-                        f"在今日结果中得分为 {item.get('score', 0)}，并进入了高优先级筛选。"
-                    ),
-                }
-            )
-
-        ideas = []
-        for item in top_items[: self.idea_count]:
-            ideas.append(
-                {
-                    "title": f"围绕 {self._safe_slug(item.get('title', '该主题'), limit=28)} 做一次定向跟踪",
-                    "detail": (
-                        f"把该条目加入后续观察清单，继续跟踪相关 repo、论文、讨论和社区反馈，"
-                        "补齐背景脉络和潜在应用机会。"
-                    ),
-                    "why_now": "它已经在今天的多源筛选中进入高分区，短期内最有继续跟踪价值。",
-                }
-            )
 
         watchlist = []
         for item in top_items[:5]:
             reason_text = str(item.get("summary", "")).strip() or str(item.get("detail", "")).strip()
             watchlist.append(
                 {
-                    "item": self._safe_slug(item.get("title", "Untitled"), limit=52) or "重点条目",
+                    "title": self._safe_slug(item.get("title", "Untitled"), limit=52) or "重点条目",
+                    "source": str(item.get("source", "")),
                     "reason": reason_text or "今天的多源筛选结果中优先级较高。",
+                    "url": str(item.get("url", "")),
                 }
             )
 
         return {
-            "report_title": self.report_title or "今日多源趋势速递",
-            "subtitle": "基于已完成抓取结果生成的稳定版自动汇总",
+            "report_title": self.report_title or "今日论文卡片速览",
+            "subtitle": "基于已完成抓取结果生成的稳定版论文卡片",
             "opening": opening,
-            "themes": themes,
-            "interpretation": {
-                "thesis": (
-                    "今天的信号重心比较明确：高分内容集中在少数几个最强条目上，"
-                    "适合先围绕这些对象做连续追踪，而不是平均分配注意力。"
-                ),
-                "implications": (
-                    "这份报告是降级生成版本，用来保证定时任务稳定产出。"
-                    "即使模型返回了不完整 JSON，核心观察和后续跟踪对象仍然被保留下来。"
-                ),
-            },
-            "predictions": predictions,
-            "ideas": ideas,
+            "top_papers": top_papers,
+            "area_summary": [],
             "watchlist": watchlist,
             "metadata": {
                 "date": self.run_date,
@@ -512,98 +549,82 @@ Invalid JSON:
             if str(item.get("title", "")).strip()
         }
 
-        themes = []
-        for theme in data.get("themes") or []:
-            if not isinstance(theme, dict):
+        top_papers = []
+        seen_titles: set[str] = set()
+        for raw_card in data.get("top_papers") or []:
+            if not isinstance(raw_card, dict):
                 continue
-            theme_title = str(theme.get("title", "")).strip()
-            narrative = str(theme.get("narrative", "")).strip()
-            signals = []
-            for signal in theme.get("signals") or []:
-                if isinstance(signal, dict):
-                    normalized_signal = self._normalize_signal(signal)
-                    matched_item = None
-                    if normalized_signal["url"]:
-                        matched_item = item_by_url.get(normalized_signal["url"])
-                    if not matched_item and normalized_signal["title"]:
-                        matched_item = item_by_title.get(normalized_signal["title"])
-                    if matched_item:
-                        if not normalized_signal["source"]:
-                            normalized_signal["source"] = str(matched_item.get("source", "")).strip()
-                        if not normalized_signal["why_it_matters"]:
-                            normalized_signal["why_it_matters"] = str(
-                                matched_item.get("summary", "")
-                            ).strip()
-                    if normalized_signal["title"]:
-                        signals.append(normalized_signal)
-            if theme_title and narrative:
-                themes.append(
-                    {
-                        "title": theme_title,
-                        "narrative": narrative,
-                        "signals": signals or self._fallback_signals(filtered_items, limit=2),
-                    }
-                )
-        themes = themes[: self.theme_count]
+            matched_item = None
+            card_url = str(raw_card.get("url", "")).strip()
+            card_title = str(raw_card.get("title", "")).strip()
+            if card_url:
+                matched_item = item_by_url.get(card_url)
+            if not matched_item and card_title:
+                matched_item = item_by_title.get(card_title)
 
-        interpretation_raw = data.get("interpretation") or {}
-        if not isinstance(interpretation_raw, dict):
-            interpretation_raw = {}
-        interpretation = {
-            "thesis": str(interpretation_raw.get("thesis", "")).strip(),
-            "implications": str(interpretation_raw.get("implications", "")).strip(),
-        }
+            if matched_item:
+                base_card = matched_item.get("paper_card")
+                if not isinstance(base_card, dict):
+                    base_card = {}
+                merged_card = {**base_card, **raw_card}
+                merged_card["title"] = matched_item.get("title", merged_card.get("title", ""))
+                merged_card["source"] = matched_item.get("source", merged_card.get("source", ""))
+                merged_card["score"] = matched_item.get("score", merged_card.get("score", 0))
+                merged_card["url"] = matched_item.get("url", merged_card.get("url", ""))
+                normalized_card = self._normalize_paper_card(merged_card, matched_item)
+            else:
+                normalized_card = self._normalize_paper_card(raw_card, {})
 
-        predictions = []
-        for prediction in data.get("predictions") or []:
-            if not isinstance(prediction, dict):
-                continue
-            content = str(prediction.get("prediction", "")).strip()
-            if not content:
-                continue
-            predictions.append(
-                {
-                    "prediction": content,
-                    "time_horizon": str(prediction.get("time_horizon", "")).strip(),
-                    "confidence": str(prediction.get("confidence", "")).strip(),
-                    "rationale": str(prediction.get("rationale", "")).strip(),
-                }
-            )
-        predictions = predictions[: self.prediction_count]
+            title_key = normalized_card.get("title", "").lower()
+            if normalized_card.get("title") and title_key not in seen_titles:
+                seen_titles.add(title_key)
+                top_papers.append(normalized_card)
 
-        ideas = []
-        for idea in data.get("ideas") or []:
-            if not isinstance(idea, dict):
+        if not top_papers:
+            for item in filtered_items:
+                if not item.get("paper_card"):
+                    continue
+                normalized_card = self._normalize_paper_card(item.get("paper_card"), item)
+                title_key = normalized_card.get("title", "").lower()
+                if normalized_card.get("title") and title_key not in seen_titles:
+                    seen_titles.add(title_key)
+                    top_papers.append(normalized_card)
+                if len(top_papers) >= self.max_items:
+                    break
+
+        top_papers = top_papers[: self.max_items]
+
+        area_summary = []
+        for raw_area in data.get("area_summary") or []:
+            if not isinstance(raw_area, dict):
                 continue
-            idea_title = str(idea.get("title", "")).strip()
-            if not idea_title:
-                continue
-            ideas.append(
-                {
-                    "title": idea_title,
-                    "detail": str(idea.get("detail", "")).strip(),
-                    "why_now": str(idea.get("why_now", "")).strip(),
-                }
-            )
-        ideas = ideas[: self.idea_count]
+            area = str(raw_area.get("area", "")).strip()
+            summary = str(raw_area.get("summary", "")).strip()
+            if area and summary:
+                area_summary.append({"area": area, "summary": summary})
 
         watchlist = []
         for watch in data.get("watchlist") or []:
             if not isinstance(watch, dict):
                 continue
-            item = str(watch.get("item", "")).strip()
+            item = str(watch.get("title") or watch.get("item", "")).strip()
             reason = str(watch.get("reason", "")).strip()
             if item:
-                watchlist.append({"item": item, "reason": reason})
+                watchlist.append(
+                    {
+                        "title": item,
+                        "source": str(watch.get("source", "")).strip(),
+                        "reason": reason,
+                        "url": str(watch.get("url", "")).strip(),
+                    }
+                )
 
         return {
             "report_title": title,
             "subtitle": subtitle,
             "opening": opening,
-            "themes": themes,
-            "interpretation": interpretation,
-            "predictions": predictions,
-            "ideas": ideas,
+            "top_papers": top_papers,
+            "area_summary": area_summary,
             "watchlist": watchlist,
             "metadata": {
                 "date": self.run_date,
@@ -687,64 +708,72 @@ Invalid JSON:
 
             opening = str(report.get("opening", "")).strip()
             if opening:
-                f.write("## 今日主线\n\n")
+                f.write("## 今日重点\n\n")
                 f.write(opening + "\n\n")
 
-            themes = report.get("themes") or []
-            for index, theme in enumerate(themes, 1):
-                f.write(f"### {index}. {theme.get('title', 'Untitled')}\n\n")
-                f.write(str(theme.get("narrative", "")).strip() + "\n\n")
-                signals = theme.get("signals") or []
-                if signals:
-                    f.write("关键信号：\n")
-                    for signal in signals:
-                        title = signal.get("title", "Untitled")
-                        url = signal.get("url", "")
-                        why = signal.get("why_it_matters", "")
-                        source = signal.get("source", "")
-                        if url:
-                            f.write(f"- [{source}] [{title}]({url})：{why}\n")
-                        else:
-                            f.write(f"- [{source}] {title}：{why}\n")
-                    f.write("\n")
-
-            interpretation = report.get("interpretation") or {}
-            thesis = str(interpretation.get("thesis", "")).strip()
-            implications = str(interpretation.get("implications", "")).strip()
-            if thesis or implications:
-                f.write("## 我的判断\n\n")
-                if thesis:
-                    f.write(thesis + "\n\n")
-                if implications:
-                    f.write(implications + "\n\n")
-
-            predictions = report.get("predictions") or []
-            if predictions:
-                f.write("## 短期预测\n\n")
-                for prediction in predictions:
+            top_papers = report.get("top_papers") or []
+            if top_papers:
+                f.write("## 今日重点论文卡片\n\n")
+                for index, card in enumerate(top_papers, 1):
+                    title = card.get("title", "Untitled")
+                    url = card.get("url", "")
+                    heading = f"### {index}. [{title}]({url})" if url else f"### {index}. {title}"
+                    f.write(heading + "\n\n")
                     f.write(
-                        f"- **{prediction.get('prediction', '')}**"
-                        f"（时间：{prediction.get('time_horizon', '未注明')}，"
-                        f"置信度：{prediction.get('confidence', '未注明')}）"
-                        f"：{prediction.get('rationale', '')}\n"
+                        f"- **论文**：{title} / {card.get('year', '未说明')} / "
+                        f"{card.get('venue_or_status', '未说明')} / {card.get('area', '未说明')} / "
+                        f"Score {card.get('score', '')}\n"
                     )
-                f.write("\n")
+                    f.write(f"- **一句话**：{card.get('one_sentence', '未说明')}\n")
+                    f.write(f"- **问题**：{card.get('problem', '未说明')}\n")
+                    method = card.get("method") or {}
+                    f.write(
+                        "- **方法**："
+                        f"输入：{method.get('input', '未说明')} → "
+                        f"核心模块：{method.get('core_modules', '未说明')} → "
+                        f"训练/优化目标：{method.get('training_objective', '未说明')} → "
+                        f"输出：{method.get('output', '未说明')}\n"
+                    )
+                    innovations = card.get("innovations") or []
+                    f.write(
+                        "- **创新**："
+                        + ("；".join(str(x) for x in innovations) if innovations else "未说明")
+                        + "\n"
+                    )
+                    experiments = card.get("experiments") or {}
+                    f.write(
+                        "- **实验**："
+                        f"主要提升：{experiments.get('main_results', '未说明')}；"
+                        f"关键消融：{experiments.get('ablations', '未说明')}；"
+                        f"效率/成本：{experiments.get('efficiency_or_cost', '未说明')}\n"
+                    )
+                    f.write(f"- **局限**：{card.get('limitations', '未说明')}\n")
+                    value = card.get("value_to_me") or {}
+                    uses = value.get("uses") or []
+                    uses_text = " / ".join(str(x) for x in uses) if uses else "未说明"
+                    reason = value.get("reason", "")
+                    f.write(f"- **对我价值**：适合用于：{uses_text}；原因：{reason or '未说明'}\n")
+                    f.write(f"- **证据强度**：{card.get('evidence_strength', '未说明')}\n")
+                    f.write(f"- **代码/数据**：{card.get('reusable_assets', '未说明')}\n")
+                    f.write(f"- **阅读优先级**：{card.get('reading_priority', '未说明')}\n\n")
 
-            ideas = report.get("ideas") or []
-            if ideas:
-                f.write("## 可行动的想法\n\n")
-                for idea in ideas:
-                    f.write(f"### {idea.get('title', 'Untitled')}\n")
-                    if idea.get("detail"):
-                        f.write(f"{idea.get('detail')}\n\n")
-                    if idea.get("why_now"):
-                        f.write(f"- 为什么是现在：{idea.get('why_now')}\n\n")
+            area_summary = report.get("area_summary") or []
+            if area_summary:
+                f.write("## 按方向速览\n\n")
+                for item in area_summary:
+                    f.write(f"- **{item.get('area', '')}**：{item.get('summary', '')}\n")
+                f.write("\n")
 
             watchlist = report.get("watchlist") or []
             if watchlist:
                 f.write("## 继续跟踪\n\n")
                 for watch in watchlist:
-                    f.write(f"- **{watch.get('item', '')}**：{watch.get('reason', '')}\n")
+                    title = watch.get("title") or watch.get("item", "")
+                    url = watch.get("url", "")
+                    label = f"[{title}]({url})" if url else title
+                    source = watch.get("source", "")
+                    prefix = f"[{source}] " if source else ""
+                    f.write(f"- {prefix}**{label}**：{watch.get('reason', '')}\n")
                 f.write("\n")
         print(f"[ReportGenerator] Markdown saved to {md_path}")
 

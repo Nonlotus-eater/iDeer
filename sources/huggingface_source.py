@@ -71,6 +71,11 @@ class HuggingFaceSource(BaseSource):
         items = []
         for p in self.papers:
             p["_hf_type"] = "paper"
+            arxiv_id = str(p.get("arxiv_id") or p.get("id") or "")
+            p.setdefault("venue_or_status", "HuggingFace Daily / arXiv preprint")
+            if not p.get("year") and len(arxiv_id) >= 5 and arxiv_id[:4].isdigit() and arxiv_id[4] == ".":
+                yy = int(arxiv_id[:2])
+                p["year"] = str(1900 + yy if yy >= 91 else 2000 + yy)
             items.append(p)
         for m in self.models:
             m["_hf_type"] = "model"
@@ -99,6 +104,9 @@ Reader profile:
 Candidate paper:
 Title: {item["title"]}
 Abstract: {item["abstract"]}
+arXiv ID: {item.get("arxiv_id", item.get("id", ""))}
+Year: {item.get("year", "")}
+Status: {item.get("venue_or_status", "HuggingFace Daily / arXiv preprint")}
 Community upvotes: {item.get("upvotes", 0)}
 
 Evaluate the paper against the reader profile. The reader mainly cares about:
@@ -120,15 +128,90 @@ Apply these caps:
 - If it is about RAG but not retrieval efficiency, indexing, vector search, memory, or data organization, cap relevance at 6.
 - If the abstract gives weak or unclear empirical evidence, cap relevance at 7.
 
-Write the summary in Simplified Chinese as one plain-text paragraph. Make it paper-centric and include:
-问题: what problem it studies; 方法: the technical idea/contribution; 实验/证据: the validation signal if available; 相关性: why it matters to the reader; 局限: any uncertainty or reason to be cautious.
+Write a concise summary and a structured paper_card in Simplified Chinese.
+Important reliability rule: only use the title, abstract, and provided metadata. If venue, ablation, code/data, efficiency, or training objective is not stated, write "未说明" or "不适用". Do not guess.
 
 Return strict JSON only. No markdown fence. No extra text.
 {{
   "summary": "问题：... 方法：... 实验/证据：... 相关性：... 局限：...",
-  "relevance": 0.0
+  "relevance": 0.0,
+  "paper_card": {{
+    "title": "Paper title copied from candidate",
+    "source": "huggingface",
+    "year": "year copied from metadata or 未说明",
+    "venue_or_status": "HuggingFace Daily / arXiv preprint",
+    "area": "Spatiotemporal / Data Condensation / Vector Search / Agent Memory / Adjacent / Out of Scope",
+    "score": 0.0,
+    "one_sentence": "这篇论文解决……问题，提出……方法，在……上证明……",
+    "problem": "现有方法的主要不足是……",
+    "method": {{
+      "input": "...",
+      "core_modules": "...",
+      "training_objective": "训练目标/优化目标；如果不适用或摘要未说明则写不适用/未说明",
+      "output": "..."
+    }},
+    "innovations": ["...", "..."],
+    "experiments": {{
+      "main_results": "...",
+      "ablations": "摘要未说明",
+      "efficiency_or_cost": "摘要未说明"
+    }},
+    "limitations": "...",
+    "value_to_me": {{
+      "uses": ["相关工作", "baseline", "方法借鉴", "项目改进", "benchmark设计"],
+      "reason": "..."
+    }},
+    "evidence_strength": "强 / 中 / 弱 / 摘要未说明",
+    "reusable_assets": "代码 / 数据集 / benchmark / 未说明",
+    "reading_priority": "必读 / 可读 / 跟踪 / 跳过",
+    "url": "candidate URL"
+  }}
 }}
 """
+
+    @staticmethod
+    def _listify(value) -> list[str]:
+        if isinstance(value, list):
+            return [str(x).strip() for x in value if str(x).strip()]
+        text = str(value or "").strip()
+        return [text] if text else []
+
+    def _normalize_paper_card(self, item: dict, data: dict, score: float) -> dict:
+        raw = data.get("paper_card") if isinstance(data.get("paper_card"), dict) else {}
+        method = raw.get("method") if isinstance(raw.get("method"), dict) else {}
+        experiments = raw.get("experiments") if isinstance(raw.get("experiments"), dict) else {}
+        value = raw.get("value_to_me") if isinstance(raw.get("value_to_me"), dict) else {}
+        return {
+            "title": str(raw.get("title") or item.get("title", "")).strip(),
+            "source": "huggingface",
+            "year": str(raw.get("year") or item.get("year", "")).strip(),
+            "venue_or_status": str(raw.get("venue_or_status") or item.get("venue_or_status", "HuggingFace Daily / arXiv preprint")).strip(),
+            "area": str(raw.get("area", "")).strip() or "Adjacent",
+            "score": round(score, 2),
+            "one_sentence": str(raw.get("one_sentence", "")).strip(),
+            "problem": str(raw.get("problem", "")).strip(),
+            "method": {
+                "input": str(method.get("input", "")).strip(),
+                "core_modules": str(method.get("core_modules", "")).strip(),
+                "training_objective": str(method.get("training_objective", "")).strip(),
+                "output": str(method.get("output", "")).strip(),
+            },
+            "innovations": self._listify(raw.get("innovations"))[:4],
+            "experiments": {
+                "main_results": str(experiments.get("main_results", "")).strip(),
+                "ablations": str(experiments.get("ablations", "")).strip(),
+                "efficiency_or_cost": str(experiments.get("efficiency_or_cost", "")).strip(),
+            },
+            "limitations": str(raw.get("limitations", "")).strip(),
+            "value_to_me": {
+                "uses": self._listify(value.get("uses"))[:5],
+                "reason": str(value.get("reason", "")).strip(),
+            },
+            "evidence_strength": str(raw.get("evidence_strength", "")).strip(),
+            "reusable_assets": str(raw.get("reusable_assets", "")).strip(),
+            "reading_priority": str(raw.get("reading_priority", "")).strip(),
+            "url": str(raw.get("url") or item.get("paper_url", "")).strip(),
+        }
 
     def _build_model_prompt(self, item: dict) -> str:
         tags = item.get("tags", [])
@@ -177,13 +260,18 @@ Return strict JSON only. No markdown fence. No extra text.
         data = json.loads(response)
 
         if item.get("_hf_type") == "paper":
+            score = float(data.get("relevance", 0))
             return {
                 "_hf_type": "paper",
                 "title": item["title"],
                 "id": item.get("id", ""),
+                "arxiv_id": item.get("arxiv_id", item.get("id", "")),
                 "abstract": item.get("abstract", ""),
-                "summary": self._ensure_str(data["summary"]),
-                "score": float(data["relevance"]),
+                "year": item.get("year", ""),
+                "venue_or_status": item.get("venue_or_status", "HuggingFace Daily / arXiv preprint"),
+                "summary": self._ensure_str(data.get("summary", "")),
+                "score": score,
+                "paper_card": self._normalize_paper_card(item, data, score),
                 "upvotes": item.get("upvotes", 0),
                 "url": item["paper_url"],
             }

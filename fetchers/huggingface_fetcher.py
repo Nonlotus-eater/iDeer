@@ -7,6 +7,14 @@ from bs4 import BeautifulSoup
 import re
 
 
+def _year_from_arxiv_id(arxiv_id: str) -> str:
+    match = re.match(r"^(\d{2})(\d{2})\.", str(arxiv_id or ""))
+    if not match:
+        return ""
+    yy = int(match.group(1))
+    return str(1900 + yy if yy >= 91 else 2000 + yy)
+
+
 def get_daily_papers(max_results: int = 50) -> list:
     """
     Fetch HuggingFace Daily Papers from API.
@@ -51,6 +59,8 @@ def get_daily_papers(max_results: int = 50) -> list:
             "abstract": abstract,
             "authors": author_names,
             "upvotes": upvotes,
+            "year": _year_from_arxiv_id(arxiv_id),
+            "venue_or_status": "HuggingFace Daily / arXiv preprint",
             "paper_url": paper_url,
             "arxiv_id": arxiv_id,
         }

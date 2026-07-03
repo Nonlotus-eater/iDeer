@@ -1,6 +1,7 @@
 """Fetch latest arXiv papers by scraping the /list/{category}/new page."""
 
 import random
+import re
 import time
 
 import requests
@@ -10,6 +11,14 @@ from bs4 import BeautifulSoup
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 }
+
+
+def _year_from_arxiv_id(arxiv_id: str) -> str:
+    match = re.match(r"^(\d{2})(\d{2})\.", str(arxiv_id or ""))
+    if not match:
+        return ""
+    yy = int(match.group(1))
+    return str(1900 + yy if yy >= 91 else 2000 + yy)
 
 
 def get_arxiv_new_papers(category: str = "cs.CV", max_results: int = 100) -> list[dict]:
@@ -49,6 +58,9 @@ def get_arxiv_new_papers(category: str = "cs.CV", max_results: int = 100) -> lis
             "title": title,
             "arxiv_id": arxiv_id,
             "abstract": abstract,
+            "category": category,
+            "year": _year_from_arxiv_id(arxiv_id),
+            "venue_or_status": "arXiv preprint",
             "pdf_url": pdf_url,
             "abstract_url": abs_url,
         })

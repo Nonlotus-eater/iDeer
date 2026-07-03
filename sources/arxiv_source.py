@@ -58,10 +58,15 @@ class ArxivSource(BaseSource):
 
     def fetch_items(self) -> list[dict]:
         seen: dict[str, dict] = {}
-        for _cat, papers in self.papers_by_category.items():
+        for cat, papers in self.papers_by_category.items():
             for paper in papers:
                 aid = paper.get("arxiv_id", "")
                 if aid and aid not in seen:
+                    paper.setdefault("category", cat)
+                    paper.setdefault("venue_or_status", "arXiv preprint")
+                    if not paper.get("year") and len(aid) >= 5 and aid[:4].isdigit() and aid[4] == ".":
+                        yy = int(aid[:2])
+                        paper["year"] = str(1900 + yy if yy >= 91 else 2000 + yy)
                     seen[aid] = paper
         print(f"[{self.name}] {len(seen)} unique papers after dedup across categories")
         return list(seen.values())
@@ -79,6 +84,10 @@ Reader profile:
 Candidate paper:
 Title: {item["title"]}
 Abstract: {item["abstract"]}
+arXiv ID: {item.get("arxiv_id", "")}
+Category: {item.get("category", "")}
+Year: {item.get("year", "")}
+Status: {item.get("venue_or_status", "arXiv preprint")}
 
 Evaluate the paper against the reader profile. The reader mainly cares about:
 1. spatiotemporal data mining/modeling, forecasting, mobility analytics, traffic systems, urban computing, human dynamics, and spatiotemporal representation learning;
@@ -99,25 +108,106 @@ Apply these caps:
 - If it is about RAG but not retrieval efficiency, indexing, vector search, memory, or data organization, cap relevance at 6.
 - If the abstract gives weak or unclear empirical evidence, cap relevance at 7.
 
-Write the summary in Simplified Chinese as one plain-text paragraph. Make it paper-centric and include:
-问题: what problem it studies; 方法: the technical idea/contribution; 实验/证据: the validation signal if available; 相关性: why it matters to the reader; 局限: any uncertainty or reason to be cautious.
+Write a concise summary and a structured paper_card in Simplified Chinese.
+Important reliability rule: only use the title and abstract. If venue, ablation, code/data, efficiency, or training objective is not stated, write "未说明" or "不适用". Do not guess.
 
 Return strict JSON only. No markdown fence. No extra text.
 {{
   "summary": "问题：... 方法：... 实验/证据：... 相关性：... 局限：...",
-  "relevance": 0.0
+  "relevance": 0.0,
+  "paper_card": {{
+    "title": "Paper title copied from candidate",
+    "source": "arxiv",
+    "year": "year copied from metadata or 未说明",
+    "venue_or_status": "arXiv preprint",
+    "area": "Spatiotemporal / Data Condensation / Vector Search / Agent Memory / Adjacent / Out of Scope",
+    "score": 0.0,
+    "one_sentence": "这篇论文解决……问题，提出……方法，在……上证明……",
+    "problem": "现有方法的主要不足是……",
+    "method": {{
+      "input": "...",
+      "core_modules": "...",
+      "training_objective": "训练目标/优化目标；如果不适用或摘要未说明则写不适用/未说明",
+      "output": "..."
+    }},
+    "innovations": ["...", "..."],
+    "experiments": {{
+      "main_results": "...",
+      "ablations": "摘要未说明",
+      "efficiency_or_cost": "摘要未说明"
+    }},
+    "limitations": "...",
+    "value_to_me": {{
+      "uses": ["相关工作", "baseline", "方法借鉴", "项目改进", "benchmark设计"],
+      "reason": "..."
+    }},
+    "evidence_strength": "强 / 中 / 弱 / 摘要未说明",
+    "reusable_assets": "代码 / 数据集 / benchmark / 未说明",
+    "reading_priority": "必读 / 可读 / 跟踪 / 跳过",
+    "url": "candidate URL"
+  }}
 }}
 """
+
+    @staticmethod
+    def _listify(value) -> list[str]:
+        if isinstance(value, list):
+            return [str(x).strip() for x in value if str(x).strip()]
+        text = str(value or "").strip()
+        return [text] if text else []
+
+    def _normalize_paper_card(self, item: dict, data: dict, score: float) -> dict:
+        raw = data.get("paper_card") if isinstance(data.get("paper_card"), dict) else {}
+        method = raw.get("method") if isinstance(raw.get("method"), dict) else {}
+        experiments = raw.get("experiments") if isinstance(raw.get("experiments"), dict) else {}
+        value = raw.get("value_to_me") if isinstance(raw.get("value_to_me"), dict) else {}
+        url = item.get("abstract_url", "") or item.get("pdf_url", "")
+        return {
+            "title": str(raw.get("title") or item.get("title", "")).strip(),
+            "source": "arxiv",
+            "year": str(raw.get("year") or item.get("year", "")).strip(),
+            "venue_or_status": str(raw.get("venue_or_status") or item.get("venue_or_status", "arXiv preprint")).strip(),
+            "area": str(raw.get("area", "")).strip() or "Adjacent",
+            "score": round(score, 2),
+            "one_sentence": str(raw.get("one_sentence", "")).strip(),
+            "problem": str(raw.get("problem", "")).strip(),
+            "method": {
+                "input": str(method.get("input", "")).strip(),
+                "core_modules": str(method.get("core_modules", "")).strip(),
+                "training_objective": str(method.get("training_objective", "")).strip(),
+                "output": str(method.get("output", "")).strip(),
+            },
+            "innovations": self._listify(raw.get("innovations"))[:4],
+            "experiments": {
+                "main_results": str(experiments.get("main_results", "")).strip(),
+                "ablations": str(experiments.get("ablations", "")).strip(),
+                "efficiency_or_cost": str(experiments.get("efficiency_or_cost", "")).strip(),
+            },
+            "limitations": str(raw.get("limitations", "")).strip(),
+            "value_to_me": {
+                "uses": self._listify(value.get("uses"))[:5],
+                "reason": str(value.get("reason", "")).strip(),
+            },
+            "evidence_strength": str(raw.get("evidence_strength", "")).strip(),
+            "reusable_assets": str(raw.get("reusable_assets", "")).strip(),
+            "reading_priority": str(raw.get("reading_priority", "")).strip(),
+            "url": str(raw.get("url") or url).strip(),
+        }
 
     def parse_eval_response(self, item: dict, response: str) -> dict:
         response = str(response or "").strip("```").strip("json")
         data = json.loads(response)
+        score = float(data.get("relevance", 0))
         return {
             "title": item["title"],
             "arxiv_id": item.get("arxiv_id", ""),
             "abstract": item.get("abstract", ""),
-            "summary": self._ensure_str(data["summary"]),
-            "score": float(data["relevance"]),
+            "category": item.get("category", ""),
+            "year": item.get("year", ""),
+            "venue_or_status": item.get("venue_or_status", "arXiv preprint"),
+            "summary": self._ensure_str(data.get("summary", "")),
+            "score": score,
+            "paper_card": self._normalize_paper_card(item, data, score),
             "pdf_url": item.get("pdf_url", ""),
             "url": item.get("abstract_url", "") or item.get("pdf_url", ""),
         }
