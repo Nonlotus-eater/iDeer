@@ -79,6 +79,9 @@ def _request_notes(base_url: str, params: dict[str, Any], max_results: int) -> l
             payload = response.json()
         except Exception as exc:
             print(f"[openreview] Fetch failed from {base_url}: {exc}")
+            body = getattr(locals().get("response", None), "text", "")
+            if body:
+                print(f"[openreview] Response body: {body[:500]}")
             break
 
         page_notes = payload.get("notes") or []

@@ -552,6 +552,45 @@ Invalid JSON:
             },
         }
 
+    def _build_empty_report(self, reason: str) -> dict[str, Any]:
+        source_counts = {
+            source_name: len(recs) for source_name, recs in self.all_recs.items()
+        }
+        configured_sources = "、".join(source_counts.keys()) or "未记录"
+        opening = (
+            "本次运行没有产生可用于生成论文卡片的推荐条目。"
+            f"已运行的数据源为：{configured_sources}。"
+            "如果只启用了 OpenReview，请确认已配置 IDEER_OPENREVIEW_VENUES 或 "
+            "IDEER_OPENREVIEW_INVITATIONS；如果日志中出现 ChallengeRequiredError，"
+            "说明 OpenReview 公开 API 在当前运行环境中触发了访问验证。"
+        )
+        return {
+            "report_title": self.report_title or "今日论文卡片速览",
+            "subtitle": "本次运行没有抓取到可生成卡片的论文",
+            "opening": opening,
+            "top_papers": [],
+            "area_summary": [],
+            "watchlist": [
+                {
+                    "title": "检查 OpenReview venue/invitation 配置",
+                    "source": "openreview",
+                    "reason": (
+                        "OpenReview 不是全站每日流，必须指定 venue 或 invitation。"
+                        "建议先与 arXiv/HuggingFace 一起运行，避免单源为空。"
+                    ),
+                    "url": "https://openreview.net/",
+                }
+            ],
+            "metadata": {
+                "date": self.run_date,
+                "generated_at": self.run_datetime.isoformat(),
+                "source_counts": source_counts,
+                "input_item_count": 0,
+                "generation_mode": "empty",
+                "empty_reason": reason,
+            },
+        }
+
     def _normalize_report(self, data: dict[str, Any], filtered_items: list[dict]) -> dict[str, Any]:
         title = str(data.get("report_title", "")).strip() or self.report_title
         subtitle = str(data.get("subtitle", "")).strip()
@@ -658,7 +697,9 @@ Invalid JSON:
         filtered = self._filter_items()
         if not filtered:
             print("[ReportGenerator] No recommendation items available for report generation.")
-            return None
+            report = self._build_empty_report(reason="no_recommendation_items")
+            report["input_items"] = []
+            return report
 
         print(
             f"[ReportGenerator] Building report from {len(filtered)} curated items "
